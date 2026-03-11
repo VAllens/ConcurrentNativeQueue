@@ -32,6 +32,7 @@ public unsafe struct ConcurrentNativeQueue<T> : IDisposable where T : unmanaged
 {
     private const int DefaultSegmentSize = 32;
     private const int MaxSegmentSize = 1024 * 1024;
+    private const int PreBuildSlots = 16;
 
     private struct Slot
     {
@@ -154,6 +155,11 @@ public unsafe struct ConcurrentNativeQueue<T> : IDisposable where T : unmanaged
             {
                 tail->Slots[offset].Value = item;
                 Volatile.Write(ref tail->Slots[offset].State, 1);
+
+                if (offset + 1 >= tail->Capacity - PreBuildSlots
+                    && Volatile.Read(ref tail->Next) == (nint)0)
+                    EnsureNextSegment(tail);
+
                 return;
             }
 
@@ -201,6 +207,10 @@ public unsafe struct ConcurrentNativeQueue<T> : IDisposable where T : unmanaged
                 for (int i = 0; i < batchSize; i++)
                     slots[baseSlot + i].State = 1;
 
+                if (baseSlot + batchSize >= tail->Capacity - PreBuildSlots
+                    && Volatile.Read(ref tail->Next) == (nint)0)
+                    EnsureNextSegment(tail);
+
                 index += batchSize;
                 spin = default;
             }
@@ -212,27 +222,35 @@ public unsafe struct ConcurrentNativeQueue<T> : IDisposable where T : unmanaged
     }
 
     /// <summary>
-    /// 段满时分配新段并推进 _tail。由生产者调用。
+    /// 确保段的 Next 已分配。由生产者在段接近满（预建）或已满时调用。
     /// 新段容量指数增长（上限 <see cref="MaxSegmentSize"/>），减少段切换频率。
     /// 失败的 CAS 会立即释放多余段（该段从未被发布，无并发访问风险）。
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void EnsureNextSegment(SegmentHeader* seg)
+    {
+        int nextCap = seg->NextCapacity;
+        SegmentHeader* newSeg = AllocSegment(
+            nextCap,
+            seg->BaseIndex + seg->Capacity,
+            Math.Min(nextCap * 2, MaxSegmentSize));
+
+        if (Interlocked.CompareExchange(ref seg->Next, (nint)newSeg, (nint)0) != (nint)0)
+        {
+            NativeMemory.Free(newSeg->Slots);
+            NativeMemory.Free(newSeg);
+        }
+    }
+
+    /// <summary>
+    /// 段满时确保下一段存在并推进 _tail。由生产者调用。
+    /// 若下一段已通过预建完成分配，此方法仅执行一次 CAS 推进尾指针。
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void TryAdvanceTail(SegmentHeader* tail)
     {
         if (Volatile.Read(ref tail->Next) == (nint)0)
-        {
-            int nextCap = tail->NextCapacity;
-            SegmentHeader* newSeg = AllocSegment(
-                nextCap,
-                tail->BaseIndex + tail->Capacity,
-                Math.Min(nextCap * 2, MaxSegmentSize));
-
-            if (Interlocked.CompareExchange(ref tail->Next, (nint)newSeg, (nint)0) != (nint)0)
-            {
-                NativeMemory.Free(newSeg->Slots);
-                NativeMemory.Free(newSeg);
-            }
-        }
+            EnsureNextSegment(tail);
 
         nint next = Volatile.Read(ref tail->Next);
         if (next != 0)
@@ -243,7 +261,7 @@ public unsafe struct ConcurrentNativeQueue<T> : IDisposable where T : unmanaged
     /// 尝试查看队列头部的元素但不移除它。此方法仅供单个消费者调用。
     /// </summary>
     /// <returns>如果成功查看返回 <c>true</c>，队列为空时返回 <c>false</c>。</returns>
-    public bool TryPeek(out T item)
+    public readonly bool TryPeek(out T item)
     {
         SegmentHeader* head = _head;
         long pos = _dequeuePos;
@@ -325,7 +343,7 @@ public unsafe struct ConcurrentNativeQueue<T> : IDisposable where T : unmanaged
             seg = next;
         }
         _head = null;
-        _tail = (nint)0;
+        _tail = 0;
         _origin = null;
     }
 }
