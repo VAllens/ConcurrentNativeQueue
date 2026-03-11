@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using BenchmarkDotNet.Attributes;
 using ConcurrentNativeQueueLibrary;
 
@@ -47,7 +47,7 @@ public class BatchEnqueueBenchmark
     }
 
     [Benchmark]
-    public void NativeQueue_EnqueueLoop()
+    public void ConcurrentNativeQueue_EnqueueLoop()
     {
         var data = _data;
         for (int i = 0; i < data.Length; i++)
@@ -55,7 +55,7 @@ public class BatchEnqueueBenchmark
     }
 
     [Benchmark]
-    public void NativeQueue_EnqueueRange()
+    public void ConcurrentNativeQueue_EnqueueRange()
     {
         _nativeQueue.EnqueueRange(_data);
     }

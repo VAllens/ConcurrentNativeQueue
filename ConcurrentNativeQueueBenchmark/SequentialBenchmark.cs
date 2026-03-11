@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using BenchmarkDotNet.Attributes;
 using ConcurrentNativeQueueLibrary;
 
@@ -39,7 +39,7 @@ public class SequentialBenchmark
     }
 
     [Benchmark]
-    public void NativeQueue()
+    public void ConcurrentNativeQueue()
     {
         int n = Count;
         for (int i = 0; i < n; i++)
@@ -49,7 +49,7 @@ public class SequentialBenchmark
     }
 
     [Benchmark]
-    public void NativeQueue_Batch()
+    public void ConcurrentNativeQueue_Batch()
     {
         int n = Count;
         Span<long> buf = stackalloc long[Math.Min(n, 256)];

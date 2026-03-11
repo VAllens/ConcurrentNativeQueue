@@ -1,11 +1,12 @@
-﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Attributes;
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using ConcurrentNativeQueueLibrary;
 
 namespace ConcurrentNativeQueueBenchmark;
 
 /// <summary>
-/// MPSC 多生产者单消费者吞吐量：NativeQueue vs ConcurrentQueue，
+/// MPSC 多生产者单消费者吞吐量：NativeQueue vs ConcurrentQueue vs Channel&lt;T&gt;，
 /// 变化生产者数量观察扩展性。
 /// 使用专用 Thread + 三阶段同步（ready/start/done）消除线程池调度抖动。
 /// </summary>
@@ -19,6 +20,7 @@ public class MpscBenchmark
 
     private ConcurrentNativeQueue<long> _nativeQueue;
     private ConcurrentQueue<long> _managedQueue = null!;
+    private Channel<long> _channel = null!;
 
     [IterationSetup]
     public void Setup()
@@ -26,6 +28,7 @@ public class MpscBenchmark
         _nativeQueue.Dispose();
         _nativeQueue = new ConcurrentNativeQueue<long>();
         _managedQueue = new ConcurrentQueue<long>();
+        _channel = Channel.CreateUnbounded<long>(new UnboundedChannelOptions { SingleReader = true });
     }
 
     [GlobalCleanup]
@@ -72,7 +75,7 @@ public class MpscBenchmark
     }
 
     [Benchmark]
-    public int NativeQueue()
+    public int ConcurrentNativeQueue()
     {
         int itemsPerProducer = TotalItems / ProducerCount;
         int totalItems = itemsPerProducer * ProducerCount;
@@ -100,6 +103,47 @@ public class MpscBenchmark
         while (consumed < totalItems)
         {
             if (_nativeQueue.TryDequeue(out _))
+                consumed++;
+        }
+
+        done.Wait();
+        ready.Dispose();
+        start.Dispose();
+        done.Dispose();
+        return consumed;
+    }
+
+    [Benchmark]
+    public int UnboundedChannel()
+    {
+        int itemsPerProducer = TotalItems / ProducerCount;
+        int totalItems = itemsPerProducer * ProducerCount;
+        var ready = new CountdownEvent(ProducerCount);
+        var start = new ManualResetEventSlim(false);
+        var done = new CountdownEvent(ProducerCount);
+        var writer = _channel.Writer;
+        var reader = _channel.Reader;
+
+        for (int p = 0; p < ProducerCount; p++)
+        {
+            int pid = p;
+            new Thread(() =>
+            {
+                ready.Signal();
+                start.Wait();
+                for (int i = 0; i < itemsPerProducer; i++)
+                    writer.TryWrite((long)pid * itemsPerProducer + i);
+                done.Signal();
+            }) { IsBackground = true }.Start();
+        }
+
+        ready.Wait();
+        start.Set();
+
+        int consumed = 0;
+        while (consumed < totalItems)
+        {
+            if (reader.TryRead(out _))
                 consumed++;
         }
 
