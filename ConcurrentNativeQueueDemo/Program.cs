@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Collections.Concurrent;
 using ConcurrentNativeQueueLibrary;
 
 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -78,3 +79,64 @@ Console.WriteLine($"耗时: {sw.Elapsed.TotalMilliseconds:F2} ms");
 Console.WriteLine($"吞吐量: {totalItems / sw.Elapsed.TotalSeconds:N0} ops/sec");
 Console.WriteLine($"剩余元素: {queue.Count}");
 Console.WriteLine($"数据完整性: {(allPresent ? "通过 ✓" : "失败 ✗")}");
+Console.WriteLine();
+
+// --- 固定队列深度循环验证（稳态留存量）---
+Console.WriteLine("--- 固定队列深度循环验证（稳态留存量）---");
+const int fixedDepth = 4096;
+const int loopCount = 200_000;
+const int fixedSegmentSize = 64;
+
+// ConcurrentNativeQueue
+using (var fixedNative = new ConcurrentNativeQueue<long>(fixedSegmentSize, true))
+{
+    for (int i = 0; i < fixedDepth; i++)
+        fixedNative.Enqueue(i);
+
+#if DEBUG
+    var before = fixedNative.GetDebugSlotStats();
+#endif
+
+    var nativeSw = System.Diagnostics.Stopwatch.StartNew();
+    long next = fixedDepth;
+    long nativeChecksum = 0;
+    for (int i = 0; i < loopCount; i++)
+    {
+        fixedNative.Enqueue(next++);
+        fixedNative.TryDequeue(out long item);
+        nativeChecksum += item;
+    }
+    nativeSw.Stop();
+
+#if DEBUG
+    var after = fixedNative.GetDebugSlotStats();
+#endif
+
+    Console.WriteLine($"[Native] Depth={fixedDepth}, Loop={loopCount}, SegmentSize={fixedSegmentSize}");
+    Console.WriteLine($"[Native] 耗时: {nativeSw.Elapsed.TotalMilliseconds:F2} ms, 吞吐: {loopCount / nativeSw.Elapsed.TotalSeconds:N0} loop/s, 校验: {nativeChecksum}");
+#if DEBUG
+    Console.WriteLine($"[Native][DEBUG] SlotAlloc={after.SlotAllocCount}, SlotReuse={after.SlotReuseCount}, SlotFree={after.SlotFreeCount}");
+    Console.WriteLine($"[Native][DEBUG] ΔReuse={after.SlotReuseCount - before.SlotReuseCount}, ΔAlloc={after.SlotAllocCount - before.SlotAllocCount}, ΔFree={after.SlotFreeCount - before.SlotFreeCount}");
+#endif
+}
+
+// ConcurrentQueue
+{
+    var fixedManaged = new ConcurrentQueue<long>();
+    for (int i = 0; i < fixedDepth; i++)
+        fixedManaged.Enqueue(i);
+
+    var managedSw = System.Diagnostics.Stopwatch.StartNew();
+    long next = fixedDepth;
+    long managedChecksum = 0;
+    for (int i = 0; i < loopCount; i++)
+    {
+        fixedManaged.Enqueue(next++);
+        fixedManaged.TryDequeue(out long item);
+        managedChecksum += item;
+    }
+    managedSw.Stop();
+
+    Console.WriteLine($"[Managed] Depth={fixedDepth}, Loop={loopCount}");
+    Console.WriteLine($"[Managed] 耗时: {managedSw.Elapsed.TotalMilliseconds:F2} ms, 吞吐: {loopCount / managedSw.Elapsed.TotalSeconds:N0} loop/s, 校验: {managedChecksum}");
+}

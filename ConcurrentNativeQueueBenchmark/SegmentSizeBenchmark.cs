@@ -1,4 +1,4 @@
-using BenchmarkDotNet.Attributes;
+﻿using BenchmarkDotNet.Attributes;
 using ConcurrentNativeQueueLibrary;
 
 namespace ConcurrentNativeQueueBenchmark;
@@ -12,6 +12,9 @@ public class SegmentSizeBenchmark
     [Params(1_024, 65_536)]
     public int Count;
 
+    [Params(false, true)]
+    public bool PreferSteadyStateCapacity;
+
     private ConcurrentNativeQueue<long> _smallSegment;
     private ConcurrentNativeQueue<long> _largeSegment;
 
@@ -20,8 +23,8 @@ public class SegmentSizeBenchmark
     {
         _smallSegment.Dispose();
         _largeSegment.Dispose();
-        _smallSegment = new ConcurrentNativeQueue<long>(32);
-        _largeSegment = new ConcurrentNativeQueue<long>(1024);
+        _smallSegment = new ConcurrentNativeQueue<long>(32, PreferSteadyStateCapacity);
+        _largeSegment = new ConcurrentNativeQueue<long>(1024, PreferSteadyStateCapacity);
     }
 
     [GlobalCleanup]

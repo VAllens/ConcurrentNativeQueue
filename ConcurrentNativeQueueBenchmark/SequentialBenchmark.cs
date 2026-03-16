@@ -13,6 +13,9 @@ public class SequentialBenchmark
     [Params(1_024, 65_536)]
     public int Count;
 
+    [Params(false, true)]
+    public bool PreferSteadyStateCapacity;
+
     private ConcurrentNativeQueue<long> _nativeQueue;
     private ConcurrentQueue<long> _managedQueue = null!;
 
@@ -20,7 +23,7 @@ public class SequentialBenchmark
     public void Setup()
     {
         _nativeQueue.Dispose();
-        _nativeQueue = new ConcurrentNativeQueue<long>();
+        _nativeQueue = new ConcurrentNativeQueue<long>(PreferSteadyStateCapacity);
         _managedQueue = new ConcurrentQueue<long>();
     }
 

@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using ConcurrentNativeQueueLibrary;
 
 namespace ConcurrentNativeQueueUnitTest;
@@ -54,6 +54,37 @@ public class ConcurrentNativeQueueUnitTest
         Assert.True(queue.TryDequeue(out int b));
         Assert.Equal(99, b);
         Assert.True(queue.IsEmpty);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(-1, false)]
+    [InlineData(-1, true)]
+    public void Constructor_WithPreferSteadyStateCapacity_InvalidSegmentSize_Throws(int segmentSize, bool preferSteadyStateCapacity)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ConcurrentNativeQueue<int>(segmentSize, preferSteadyStateCapacity));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Constructor_WithPreferSteadyStateCapacity_Works(bool preferSteadyStateCapacity)
+    {
+        using var queue = new ConcurrentNativeQueue<int>(4, preferSteadyStateCapacity);
+
+        for (int i = 0; i < 16; i++)
+            queue.Enqueue(i);
+
+        for (int i = 0; i < 16; i++)
+        {
+            Assert.True(queue.TryDequeue(out int item));
+            Assert.Equal(i, item);
+        }
+
+        Assert.True(queue.IsEmpty);
+        Assert.Equal(0, queue.Count);
     }
 
     #endregion
